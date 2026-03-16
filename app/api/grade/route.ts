@@ -16,10 +16,10 @@ export async function POST(request: NextRequest) {
     const isQ53 = questionType === "53"
 
     const systemPrompt = isQ53
-      ? `Bạn là giáo viên chấm bài TOPIK II. Trả về JSON hợp lệ duy nhất, không có text khác. JSON gồm: questionType("53"), scoreBreakdown(type:"53", content:0-10, vocabGrammar:0-10, structureExpression:0-10, total:0-30), generalFeedback(overview, strengths:[], weaknesses:[], teacherComment), inlineCorrections(id,position,wrong,correct,type,explanation,context), logicFeedback(structure,coherence,argumentation,suggestions:[]), originalEssay, suggestedEssay. Tối đa 8 lỗi inline. Nhận xét bằng tiếng Việt.`
-      : `Bạn là giáo viên chấm bài TOPIK II. Trả về JSON hợp lệ duy nhất, không có text khác. JSON gồm: questionType("54"), scoreBreakdown(type:"54", content:0-15, logicCoherence:0-15, vocabulary:0-10, grammar:0-10, total:0-50), generalFeedback(overview, strengths:[], weaknesses:[], teacherComment), inlineCorrections(id,position,wrong,correct,type,explanation,context), logicFeedback(structure,coherence,argumentation,suggestions:[]), originalEssay, suggestedEssay. Tối đa 8 lỗi inline. Nhận xét bằng tiếng Việt.`
+      ? `Bạn là giáo viên chấm bài TOPIK II. Trả về JSON hợp lệ duy nhất, không có text khác ngoài JSON. JSON gồm: questionType("53"), scoreBreakdown(type:"53", content:0-10, vocabGrammar:0-10, structureExpression:0-10, total:0-30), generalFeedback(overview, strengths:[], weaknesses:[], teacherComment), inlineCorrections(id,wrong,correct,type,explanation,context), logicFeedback(structure,coherence,argumentation,suggestions:[]), originalEssay, suggestedEssay. Tối đa 8 lỗi inline. Tất cả nhận xét PHẢI bằng tiếng Việt. KHÔNG dùng tiếng Hàn trong các trường nhận xét.`
+      : `Bạn là giáo viên chấm bài TOPIK II. Trả về JSON hợp lệ duy nhất, không có text khác ngoài JSON. JSON gồm: questionType("54"), scoreBreakdown(type:"54", content:0-15, logicCoherence:0-15, vocabulary:0-10, grammar:0-10, total:0-50), generalFeedback(overview, strengths:[], weaknesses:[], teacherComment), inlineCorrections(id,wrong,correct,type,explanation,context), logicFeedback(structure,coherence,argumentation,suggestions:[]), originalEssay, suggestedEssay. Tối đa 8 lỗi inline. Tất cả nhận xét PHẢI bằng tiếng Việt. KHÔNG dùng tiếng Hàn trong các trường nhận xét.`
 
-    const userMessage = "Chủ đề: " + (topic || "không có") + "\n\nBài viết câu " + questionType + ":\n" + essay + "\n\nTrả về JSON."
+    const userMessage = "Chủ đề: " + (topic || "không có") + "\n\nBài viết câu " + questionType + ":\n" + essay + "\n\nTrả về JSON. Lưu ý: trường 'wrong' phải là chuỗi ký tự CHÍNH XÁC xuất hiện trong bài viết trên."
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
@@ -31,39 +31,5 @@ export async function POST(request: NextRequest) {
     const responseText = message.content[0].type === "text" ? message.content[0].text : ""
 
     let gradingResult
-    let cleaned = responseText
-
-    const start = cleaned.indexOf("{")
-    const end = cleaned.lastIndexOf("}")
-    if (start !== -1 && end !== -1) {
-      cleaned = cleaned.substring(start, end + 1)
-    }
-
-    try {
-      gradingResult = JSON.parse(cleaned)
-    } catch (e) {
-      console.error("Parse error:", e)
-      console.error("Raw:", responseText.substring(0, 300))
-      return NextResponse.json(
-        { error: "AI trả về định dạng không hợp lệ. Vui lòng thử lại." },
-        { status: 500 }
-      )
-    }
-
-    if (!gradingResult.originalEssay) {
-      gradingResult.originalEssay = essay
-    }
-    if (!Array.isArray(gradingResult.inlineCorrections)) {
-      gradingResult.inlineCorrections = []
-    }
-
-    return NextResponse.json(gradingResult)
-
-  } catch (error) {
-    console.error("Grading error:", error)
-    return NextResponse.json(
-      { error: "Đã có lỗi xảy ra khi chấm bài. Vui lòng thử lại." },
-      { status: 500 }
-    )
-  }
-}
+    const start = responseText.indexOf("{")
+    const end = response
