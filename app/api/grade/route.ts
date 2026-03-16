@@ -32,4 +32,4 @@ export async function POST(request: NextRequest) {
 
     let gradingResult
     const start = responseText.indexOf("{")
-    const end = response
+    const end = responseText.lastIndexOf("}")
