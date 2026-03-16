@@ -6,20 +6,17 @@ const client = new Anthropic({
 })
 
 export async function POST(request: NextRequest) {
-  try {
-    const { questionType, topic, essay } = await request.json()
-
-    if (!essay || !questionType) {
-      return NextResponse.json({ error: "Thiếu thông tin bài viết" }, { status: 400 })
-    }
-
-    const isQ53 = questionType === "53"
-
-    const scoreSchema = isQ53
-      ? `"scoreBreakdown": { "type": "53", "content": 0-10, "vocabGrammar": 0-10, "structureExpression": 0-10, "total": 0-30 }`
-      : `"scoreBreakdown": { "type": "54", "content": 0-15, "logicCoherence": 0-15, "vocabulary": 0-10, "grammar": 0-10, "total": 0-50 }`
-
-    const systemPrompt = `Bạn là giáo viên chuyên gia chấm bài thi TOPIK II phần viết. Trả về JSON hợp lệ, không có text nào khác ngoài JSON.
+try {
+  let cleaned = responseText
+  cleaned = cleaned.replace(/^[\s\S]*?```json\s*/m, "")
+  cleaned = cleaned.replace(/```[\s\S]*$/m, "")
+  cleaned = cleaned.trim()
+  if (!cleaned.startsWith("{")) {
+    const start = responseText.indexOf("{")
+    const end = responseText.lastIndexOf("}")
+    cleaned = responseText.substring(start, end + 1)
+  }
+  gradingResult = JSON.parse(cleaned)
 
 Schema JSON:
 {
