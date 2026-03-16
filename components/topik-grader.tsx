@@ -403,16 +403,29 @@ export function TopikGrader() {
   const renderCorrectedEssay = () => {
     if (!result) return null
 
-    const essay = result.originalEssay
-    const corrections = result.inlineCorrections
+    const essay = result.originalEssay || essayText || ""
+    const corrections = result.inlineCorrections || []
+    
+    if (!essay) return <span>{essayText}</span>
+
+    const validCorrections = corrections.filter((c: any) => 
+      c && c.wrong && typeof c.position === "number" &&
+      c.position >= 0 && c.position < essay.length &&
+      essay.substring(c.position, c.position + c.wrong.length) === c.wrong
+    )
+
+    if (validCorrections.length === 0) {
+      return <span>{essay}</span>
+    }
+
     const segments: React.ReactNode[] = []
     let lastIndex = 0
 
-    // Sort corrections by position
-    const sortedCorrections = [...corrections].sort((a, b) => a.position - b.position)
+    const sortedCorrections = [...validCorrections].sort((a: any, b: any) => a.position - b.position)
 
-    sortedCorrections.forEach((correction, idx) => {
-      // Add text before this correction
+    sortedCorrections.forEach((correction: any, idx: number) => {
+      if (correction.position < lastIndex) return
+
       const textBefore = essay.substring(lastIndex, correction.position)
       if (textBefore) {
         segments.push(<span key={`text-${idx}`}>{textBefore}</span>)
@@ -422,9 +435,8 @@ export function TopikGrader() {
       const isRejected = rejectedCorrections.has(correction.id)
       const isSelected = selectedCorrection?.id === correction.id
 
-      // Add the correction mark
       const isSuggestion = correction.type === "suggestion"
-      const typeInfo = errorTypeLabels[correction.type]
+      const typeInfo = errorTypeLabels[correction.type as ErrorType] || errorTypeLabels["grammar"]
       
       segments.push(
         <span
