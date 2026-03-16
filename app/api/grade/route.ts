@@ -6,71 +6,24 @@ const client = new Anthropic({
 })
 
 export async function POST(request: NextRequest) {
-try {
-  let cleaned = responseText
-  cleaned = cleaned.replace(/^[\s\S]*?```json\s*/m, "")
-  cleaned = cleaned.replace(/```[\s\S]*$/m, "")
-  cleaned = cleaned.trim()
-  if (!cleaned.startsWith("{")) {
-    const start = responseText.indexOf("{")
-    const end = responseText.lastIndexOf("}")
-    cleaned = responseText.substring(start, end + 1)
-  }
-  gradingResult = JSON.parse(cleaned)
+  try {
+    const { questionType, topic, essay } = await request.json()
 
-Schema JSON:
-{
-  "questionType": "${questionType}",
-  ${scoreSchema},
-  "generalFeedback": {
-    "overview": "string",
-    "strengths": ["string"],
-    "weaknesses": ["string"],
-    "teacherComment": "string"
-  },
-  "inlineCorrections": [
-    {
-      "id": "string",
-      "position": number,
-      "wrong": "string",
-      "correct": "string",
-      "type": "vocabulary|grammar|particle|spacing|expression|suggestion",
-      "explanation": "string",
-      "context": "string"
+    if (!essay || !questionType) {
+      return NextResponse.json({ error: "Thiếu thông tin bài viết" }, { status: 400 })
     }
-  ],
-  "logicFeedback": {
-    "structure": "string",
-    "coherence": "string",
-    "argumentation": "string",
-    "suggestions": ["string"]
-  },
-  "originalEssay": "bài viết gốc của học viên",
-  "suggestedEssay": "string"
-}
 
-Tiêu chí chấm điểm:
-${isQ53
-  ? "Câu 53 (30đ): Nội dung 내용 (10đ), Từ vựng Ngữ pháp 어휘문법 (10đ), Bố cục Diễn đạt 구성표현 (10đ)"
-  : "Câu 54 (50đ): Nội dung 내용 (15đ), Lập luận Mạch lạc 구성논리 (15đ), Từ vựng 어휘 (10đ), Ngữ pháp 문법 (10đ)"}
+    const isQ53 = questionType === "53"
 
-Quy tắc inlineCorrections:
-- position = vị trí byte chính xác của "wrong" trong bài gốc (đếm từ 0)
-- wrong = chuỗi ký tự CHÍNH XÁC xuất hiện trong bài viết
-- Tối đa 8 lỗi quan trọng nhất
-- originalEssay phải là bài viết gốc không thay đổi
-- Tất cả nhận xét bằng tiếng Việt`
+    const systemPrompt = isQ53
+      ? `Bạn là giáo viên chấm bài TOPIK II. Trả về JSON hợp lệ duy nhất, không có text khác. JSON gồm: questionType("53"), scoreBreakdown(type:"53", content:0-10, vocabGrammar:0-10, structureExpression:0-10, total:0-30), generalFeedback(overview, strengths:[], weaknesses:[], teacherComment), inlineCorrections(id,position,wrong,correct,type,explanation,context), logicFeedback(structure,coherence,argumentation,suggestions:[]), originalEssay, suggestedEssay. Tối đa 8 lỗi inline. Nhận xét bằng tiếng Việt.`
+      : `Bạn là giáo viên chấm bài TOPIK II. Trả về JSON hợp lệ duy nhất, không có text khác. JSON gồm: questionType("54"), scoreBreakdown(type:"54", content:0-15, logicCoherence:0-15, vocabulary:0-10, grammar:0-10, total:0-50), generalFeedback(overview, strengths:[], weaknesses:[], teacherComment), inlineCorrections(id,position,wrong,correct,type,explanation,context), logicFeedback(structure,coherence,argumentation,suggestions:[]), originalEssay, suggestedEssay. Tối đa 8 lỗi inline. Nhận xét bằng tiếng Việt.`
 
-    const userMessage = `Chủ đề: ${topic || "không có"}
-
-Bài viết câu ${questionType}:
-${essay}
-
-Trả về JSON.`
+    const userMessage = "Chủ đề: " + (topic || "không có") + "\n\nBài viết câu " + questionType + ":\n" + essay + "\n\nTrả về JSON."
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 4000,
+      max_tokens: 8000,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     })
@@ -78,29 +31,28 @@ Trả về JSON.`
     const responseText = message.content[0].type === "text" ? message.content[0].text : ""
 
     let gradingResult
+    let cleaned = responseText
+
+    const start = cleaned.indexOf("{")
+    const end = cleaned.lastIndexOf("}")
+    if (start !== -1 && end !== -1) {
+      cleaned = cleaned.substring(start, end + 1)
+    }
 
     try {
-      const cleaned = responseText.replace(/^```json\s*/g, "").replace(/^```\s*/g, "").replace(/```\s*$/g, "").trim()
       gradingResult = JSON.parse(cleaned)
-    } catch {
-      try {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          gradingResult = JSON.parse(jsonMatch[0])
-        }
-      } catch {
-        console.error("Raw response:", responseText.substring(0, 500))
-        return NextResponse.json(
-          { error: "AI trả về định dạng không hợp lệ. Vui lòng thử lại." },
-          { status: 500 }
-        )
-      }
+    } catch (e) {
+      console.error("Parse error:", e)
+      console.error("Raw:", responseText.substring(0, 300))
+      return NextResponse.json(
+        { error: "AI trả về định dạng không hợp lệ. Vui lòng thử lại." },
+        { status: 500 }
+      )
     }
 
     if (!gradingResult.originalEssay) {
       gradingResult.originalEssay = essay
     }
-
     if (!Array.isArray(gradingResult.inlineCorrections)) {
       gradingResult.inlineCorrections = []
     }
