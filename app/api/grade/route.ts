@@ -83,7 +83,7 @@ Trả về JSON.`
     let gradingResult
 
     try {
-      const cleaned = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+      const cleaned = responseText.replace(/^```json\s*/g, "").replace(/^```\s*/g, "").replace(/```\s*$/g, "").trim()
       gradingResult = JSON.parse(cleaned)
     } catch {
       try {
