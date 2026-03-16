@@ -1,72 +1,39 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import { 
-  BookOpen, 
-  CheckCircle, 
-  AlertCircle, 
-  Lightbulb, 
-  Sparkles, 
-  PenLine, 
-  Copy, 
-  Download,
-  Award,
-  TrendingUp,
-  AlertTriangle,
-  MessageSquare,
-  X,
-  Check,
-  HelpCircle,
-  Layers
-} from "lucide-react"
+import { useState, useEffect, useRef } from "react"
 
-// Error types for inline corrections
-// "suggestion" is NOT an error - it's a style improvement recommendation
 type ErrorType = "vocabulary" | "grammar" | "particle" | "spacing" | "expression" | "suggestion"
 
 interface InlineCorrection {
   id: string
-  position: number // position in the original text
+  position: number
   wrong: string
   correct: string
   type: ErrorType
   explanation: string
-  context: string // surrounding sentence fragment
+  context: string
 }
 
-// Score breakdown for TOPIK 53 (30 points total)
-// Format: 내용 (10), 문법 (10), 어휘 (10)
 interface Score53 {
   type: "53"
-  content: number // 내용 - max 10
-  grammar: number // 문법 - max 10
-  vocabulary: number // 어휘 - max 10
-  total: number // max 30
+  content: number
+  vocabGrammar: number
+  structureExpression: number
+  total: number
 }
 
-// Score breakdown for TOPIK 54 (50 points total)
 interface Score54 {
   type: "54"
-  content: number // 내용 - max 15
-  logicCoherence: number // 구성·논리 - max 15
-  vocabulary: number // 어휘 - max 10
-  grammar: number // 문법 - max 10
-  total: number // max 50
+  content: number
+  logicCoherence: number
+  vocabulary: number
+  grammar: number
+  total: number
 }
-
-type ScoreBreakdown = Score53 | Score54
 
 interface GradingResult {
   questionType: "53" | "54"
-  scoreBreakdown: ScoreBreakdown
+  scoreBreakdown: Score53 | Score54
   generalFeedback: {
     overview: string
     strengths: string[]
@@ -82,1081 +49,357 @@ interface GradingResult {
     suggestions: string[]
   }
   suggestedEssay: string
+  topicVocabulary?: {
+    words: { word: string; meaning: string; example: string }[]
+    structures: { structure: string; meaning: string; example: string }[]
+    expressions: { expression: string; usage: string }[]
+  }
 }
 
-// Mock result for TOPIK 54
-const mockGradingResult54: GradingResult = {
-  questionType: "54",
-  scoreBreakdown: {
-    type: "54",
-    content: 12,
-    logicCoherence: 11,
-    vocabulary: 7,
-    grammar: 6,
-    total: 36,
-  },
-  generalFeedback: {
-    overview: "Bài viết của em hoàn thành khá tốt với cấu trúc rõ ràng và luận điểm cụ thể. Tuy nhiên, còn một số lỗi ngữ pháp và từ vựng cần khắc phục để đạt điểm cao hơn.",
-    strengths: [
-      "Cấu trúc bài viết rõ ràng với mở bài, thân bài và kết luận",
-      "Sử dụng các liên từ phù hợp để kết nối các ý",
-      "Đưa ra được luận điểm và dẫn chứng cụ thể",
-      "Từ vựng đa dạng, phù hợp với chủ đề"
-    ],
-    weaknesses: [
-      "Một số lỗi ngữ pháp cơ bản cần khắc phục",
-      "Phần kết luận có thể mạnh mẽ hơn",
-      "Cần sử dụng thêm các cấu trúc câu nâng cao"
-    ],
-    teacherComment: "Em đã hoàn thành bài viết khá tốt với điểm số 36/50. Cô thấy em đã nắm được cách triển khai ý và sử dụng từ vựng phù hợp. Tuy nhiên, em cần chú ý hơn đến việc chia động từ và sử dụng các trợ từ chính xác. Đặc biệt cần luyện tập thêm về 띄어쓰기 (cách viết tách) và các biểu hiện tự nhiên trong tiếng Hàn. Nếu em luyện tập thêm phần ngữ pháp, điểm số sẽ cải thiện đáng kể. Cố lên em nhé!"
-  },
-  originalEssay: `요즘 현대 사회에서 기술의 발전이 우리 생활에 미치는 영향에 대한 논의가 활발합니다. 저는 기술 발전이 우리 삶에 긍정적인 영향을 더 많이 준다고 생각을 합니다.
-
-첫째, 기술의 발전으로 인해 의사소통이 더욱 편리해졌습니다. 스마트폰과 인터넷의 보급으로 우리는 언제 어디서나 가족, 친구들과 연락할수 있게 되었습니다. 많은 사람 해외에 있어도 화상 통화를 통해 얼굴을 보며 대화할 수 있습니다.
-
-둘째, 기술의 발전은 교육 분야에도 큰 변화를 가져왔습니다. 온라인 강의와 교육 플랫폼의 등장으로 시간과 장소에 구애받지않고 학습할 수 있게 되었습니다. 때문에 그러므로 교육의 기회가 더욱 평등해졌습니다.
-
-물론 기술 발전에 따른 좋은 점만 있는 것은 아닙니다. 나쁜 점도 있습니다. 개인 정보 유출, 디지털 중독 등의 문제가 아주 많이 발생합니다. 그러나 이러한 문제들은 적절한 규제와 교육을 통해 해결할 수 있습니다.
-
-결론적으로, 기술의 발전은 나쁜 점보다 좋은 점이 더 많다고 생각합니다. 공부하는 것은 중요한다. 우리는 기술을 현명하게 활용하여 더 나은 삶을 영위해야 합니다.`,
-  inlineCorrections: [
-    {
-      id: "1",
-      position: 142,
-      wrong: "생각을 합니다",
-      correct: "생각합니다",
-      type: "suggestion",
-      explanation: "Cấu trúc 'N+을/를 하다' (생각을 하다, 공부를 하다, 이야기를 하다) là đúng ngữ pháp. Tuy nhiên, trong văn viết học thuật, dạng rút gọn '생각합니다' có thể gọn gàng hơn. Đây chỉ là đề xuất về phong cách, không phải lỗi.",
-      context: "...긍정적인 영향을 더 많이 준다고 생각을 합니다."
-    },
-    {
-      id: "2",
-      position: 245,
-      wrong: "연락할수",
-      correct: "연락할 수",
-      type: "spacing",
-      explanation: "Cần có khoảng cách giữa '연락할' và '수'. Trong tiếng Hàn, '-ㄹ 수 있다' luôn viết tách '수'.",
-      context: "...가족, 친구들과 연락할수 있게 되었습니다."
-    },
-    {
-      id: "3",
-      position: 280,
-      wrong: "많은 사람",
-      correct: "많은 사람들이",
-      type: "grammar",
-      explanation: "Cần thêm trợ từ chủ ngữ '이' và dùng '사람들' (số nhiều) để câu hoàn chỉnh về mặt ngữ pháp.",
-      context: "많은 사람 해외에 있어도 화상 통화를..."
-    },
-    {
-      id: "4",
-      position: 420,
-      wrong: "구애받지않고",
-      correct: "구애받지 않고",
-      type: "spacing",
-      explanation: "'않고' phải viết tách với động từ phía trước. Đây là lỗi 띄어쓰기 thường gặp.",
-      context: "...시간과 장소에 구애받지않고 학습할 수 있게..."
-    },
-    {
-      id: "5",
-      position: 460,
-      wrong: "때문에 그러므로",
-      correct: "그러므로",
-      type: "grammar",
-      explanation: "Không dùng '때문에' và '그러므로' cùng lúc vì cả hai đều diễn đạt quan hệ nhân quả. Chỉ cần dùng một trong hai.",
-      context: "때문에 그러므로 교육의 기회가 더욱 평등해졌습니다."
-    },
-    {
-      id: "6",
-      position: 520,
-      wrong: "좋은 점",
-      correct: "장점",
-      type: "vocabulary",
-      explanation: "'장점' là từ vựng học thuật hơn, phù hợp với văn phong TOPIK. Nên dùng '장점/단점' thay vì '좋은 점/나쁜 점'.",
-      context: "...기����� 발전에 따른 좋은 점만 있는 것은 아닙니다."
-    },
-    {
-      id: "7",
-      position: 545,
-      wrong: "나쁜 점",
-      correct: "단점",
-      type: "vocabulary",
-      explanation: "Tương tự, '단점' là cách diễn đạt chuẩn mực hơn trong bài luận học thuật.",
-      context: "나쁜 점도 있습니다."
-    },
-    {
-      id: "8",
-      position: 590,
-      wrong: "아주 많이",
-      correct: "상당히",
-      type: "vocabulary",
-      explanation: "'상당히' mang tính học thuật cao hơn, phù hợp với bài viết chính thức. '아주 많이' có phần khẩu ngữ.",
-      context: "...등의 문제가 아주 많이 발생합니다."
-    },
-    {
-      id: "9",
-      position: 720,
-      wrong: "공부하는 것은 중요한다",
-      correct: "공부하는 것은 중요하다",
-      type: "grammar",
-      explanation: "'중요한다' là cách chia sai. Tính từ '중요하다' không thêm '-ㄴ다' như động từ. Tính từ giữ nguyên dạng기본형.",
-      context: "공부하는 것은 중요한다."
-    }
-  ],
-  logicFeedback: {
-    structure: "Bài viết có cấu trúc 3 phần rõ ràng: Mở bài nêu quan điểm, Thân bài triển khai 2 luận điểm chính với dẫn chứng, và Kết bài tóm tắt. Tuy nhiên, phần kết luận hơi ngắn và thiếu sự liên kết với các luận điểm đã nêu.",
-    coherence: "Các ý trong bài được kết nối khá tốt nhờ sử dụng các liên từ như '첫째', '둘째', '물론', '그러나'. Tuy nhiên, đoạn cuối thân bài chuyển đột ngột từ ưu điểm sang nhược điểm.",
-    argumentation: "Luận điểm 1 (giao tiếp) và luận điểm 2 (giáo dục) được triển khai khá đầy đủ với ví dụ cụ thể. Phần nêu mặt trái của công nghệ còn sơ sài, chỉ liệt kê mà không phân tích sâu.",
-    suggestions: [
-      "Thêm 1-2 câu phân tích sâu hơn về nhược điểm của công nghệ",
-      "Kết luận nên nhắc lại các luận điểm chính một cách ngắn gọn",
-      "Có thể thêm câu hỏi tu từ hoặc lời kêu gọi hành động ở cuối bài",
-      "Đoạn chuyển tiếp giữa ưu điểm và nhược điểm cần mượt mà hơn"
-    ]
-  },
-  suggestedEssay: `요즘 현대 사회에서 기술의 발전이 우리 생활에 미치는 영향에 대한 논의가 활발합니다. 저는 기술 발전이 우리 삶에 긍정적인 영향을 더 많이 준다고 생각합니다.
-
-첫째, 기술의 발전으로 인해 의사소통이 더욱 편리해졌습니다. 스마트폰과 인터넷의 보급으로 우리는 언제 어디서나 가족, 친구들과 연락할 수 있게 되었습니다. 특히 해외에 있는 사람들과도 화상 통화를 통해 얼굴을 보며 대화할 수 있습니다.
-
-둘째, 기술의 발전은 교육 분야에도 큰 변화를 가져왔습니다. 온라인 강의와 교육 플랫폼의 등장으로 시간과 장소에 구애받지 않고 학습할 수 있게 되었습니다. 이로 인해 교육의 기회가 더욱 평등해졌습니다.
-
-물론 기술 발전에 따른 부작용도 존재합니다. 개인 정보 유출, 디지털 중독 등의 문제가 상당히 발생하고 있습니다. 그러나 이러한 문제들은 적절한 규제와 교육을 통해 해결할 수 있습니다.
-
-결론적으로, 기술의 발전은 단점보다 장점이 더 많다고 생각합니다. 우리는 기술을 현명하게 활용하여 더 나은 삶을 영위해야 합니다.`,
+const errorColors: Record<ErrorType, { bg: string; text: string; border: string; label: string }> = {
+  vocabulary: { bg: "#EBF5FF", text: "#1B6CA8", border: "#90CAF9", label: "Từ vựng" },
+  grammar: { bg: "#F3E8FF", text: "#6B21A8", border: "#C084FC", label: "Ngữ pháp" },
+  particle: { bg: "#FFF3E0", text: "#B45309", border: "#FCD34D", label: "Trợ từ" },
+  spacing: { bg: "#E8F5E9", text: "#166534", border: "#86EFAC", label: "띄어쓰기" },
+  expression: { bg: "#FCE4EC", text: "#9B1C40", border: "#F48FB1", label: "Diễn đạt" },
+  suggestion: { bg: "#F1F5F9", text: "#475569", border: "#CBD5E1", label: "Đề xuất" },
 }
 
-// Mock result for TOPIK 53
-const mockGradingResult53: GradingResult = {
-  questionType: "53",
-  scoreBreakdown: {
-    type: "53",
-    content: 8,
-    vocabGrammar: 7,
-    structureExpression: 9,
-    total: 24,
-  },
-  generalFeedback: {
-    overview: "Bài viết ngắn của em đã trả lời đúng yêu cầu đề bài. Cần chú ý hơn về việc sử dụng từ vựng chính xác và tránh các lỗi ngữ pháp cơ bản.",
-    strengths: [
-      "Trả lời đúng trọng tâm câu hỏi",
-      "Diễn đạt ý rõ ràng, dễ hiểu",
-      "Sử dụng liên từ phù hợp"
-    ],
-    weaknesses: [
-      "Một số lỗi 띄어쓰기 cần khắc phục",
-      "Cần sử dụng từ vựng đa dạng hơn"
-    ],
-    teacherComment: "Em đã hoàn thành bài viết câu 53 với điểm số 24/30. Bài viết trả lời đúng yêu cầu đề, nhưng còn một số lỗi nhỏ về cách viết. Hãy chú ý hơn về 띄어쓰기 nhé!"
-  },
-  originalEssay: `저는 한국어를 배우기 시작한 지 2년이 되었습니다. 처음에는 한글을 읽는 것도 어려웠지만 지금은 한국 드라마를 자막없이 볼수 있게 되었습니다. 한국어를 배우면서 가장 좋았던 점은 한국 친구들과 직접 대화할수 있게 된 것입니다. 앞으로도 계속 열심히 공부해서 한국에서 살고 싶습니다.`,
-  inlineCorrections: [
-    {
-      id: "53-1",
-      position: 85,
-      wrong: "볼수",
-      correct: "볼 수",
-      type: "spacing",
-      explanation: "'-ㄹ 수 있다' 구문에서 '수'는 항상 띄어 씁니다.",
-      context: "...한국 드라마를 자막없이 볼수 있게 되었습니다."
-    },
-    {
-      id: "53-2",
-      position: 75,
-      wrong: "자막없이",
-      correct: "자막 없이",
-      type: "spacing",
-      explanation: "'없이'는 명사와 띄어 씁니다.",
-      context: "...한국 드라마를 자막없이 볼 수 있게..."
-    },
-    {
-      id: "53-3",
-      position: 160,
-      wrong: "대화할수",
-      correct: "대화할 수",
-      type: "spacing",
-      explanation: "'-ㄹ 수 있다' 구문에서 '수'는 항상 띄어 씁니다.",
-      context: "...친구들과 직접 대화할수 있게 된 것입니다."
-    }
-  ],
-  logicFeedback: {
-    structure: "Bài viết ngắn gọn với cấu trúc: giới thiệu (thời gian học) → quá trình (từ khó đến dễ) → kết quả (giao tiếp được) → mục tiêu tương lai.",
-    coherence: "Các ý được kết nối logic và tự nhiên.",
-    argumentation: "Luận điểm rõ ràng với ví dụ cụ thể về việc xem phim không phụ đề.",
-    suggestions: [
-      "Có thể thêm chi tiết về phương pháp học để bài viết phong phú hơn"
-    ]
-  },
-  suggestedEssay: `저는 한국어를 배우기 시작한 지 2년이 되었습니다. 처음에는 한글을 읽는 것도 어려웠지만 지금은 한국 드라마를 자막 없이 볼 수 있게 되었습니다. 한국어를 배우면서 가장 좋았던 점은 한국 친구들과 직접 대화할 수 있게 된 것입니다. 앞으로도 계속 열심히 공부해서 한국에서 살고 싶습니다.`
-}
-
-const errorTypeLabels: Record<ErrorType, { label: string; color: string; bgColor: string; isError: boolean }> = {
-  vocabulary: { label: "Từ vựng", color: "text-blue-700", bgColor: "bg-blue-100", isError: true },
-  grammar: { label: "Ngữ pháp", color: "text-purple-700", bgColor: "bg-purple-100", isError: true },
-  particle: { label: "Trợ từ (조사)", color: "text-orange-700", bgColor: "bg-orange-100", isError: true },
-  spacing: { label: "Cách viết (띄어쓰기)", color: "text-teal-700", bgColor: "bg-teal-100", isError: true },
-  expression: { label: "Diễn đạt tự nhiên", color: "text-pink-700", bgColor: "bg-pink-100", isError: true },
-  suggestion: { label: "Đề xuất diễn đạt gọn hơn", color: "text-gray-600", bgColor: "bg-gray-100", isError: false },
+function AnimatedScore({ score, max, color }: { score: number; max: number; color: string }) {
+  const [displayed, setDisplayed] = useState(0)
+  const pct = Math.round((score / max) * 100)
+  useEffect(() => {
+    let start = 0
+    const step = score / 40
+    const timer = setInterval(() => {
+      start += step
+      if (start >= score) { setDisplayed(score); clearInterval(timer) }
+      else setDisplayed(Math.floor(start))
+    }, 30)
+    return () => clearInterval(timer)
+  }, [score])
+  const r = 54
+  const circ = 2 * Math.PI * r
+  const [dashOffset, setDashOffset] = useState(circ)
+  useEffect(() => { setTimeout(() => setDashOffset(circ - (pct / 100) * circ), 100) }, [pct, circ])
+  return (
+    <div style={{ position: "relative", width: 128, height: 128 }}>
+      <svg width="128" height="128" style={{ transform: "rotate(-90deg)" }}>
+        <circle cx="64" cy="64" r={r} fill="none" stroke="#E8F5EC" strokeWidth="10" />
+        <circle cx="64" cy="64" r={r} fill="none" stroke={color} strokeWidth="10"
+          strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={dashOffset}
+          style={{ transition: "stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)" }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 28, fontWeight: 700, color: "#2D5A3D", lineHeight: 1 }}>{displayed}</span>
+        <span style={{ fontSize: 12, color: "#6B9E7A" }}>/ {max}</span>
+      </div>
+    </div>
+  )
 }
 
 export function TopikGrader() {
-  const [selectedQuestion, setSelectedQuestion] = useState<string>("")
-  const [topic, setTopic] = useState<string>("")
-  const [essayText, setEssayText] = useState<string>("")
+  const [questionType, setQuestionType] = useState("")
+  const [topic, setTopic] = useState("")
+  const [essayText, setEssayText] = useState("")
   const [isGrading, setIsGrading] = useState(false)
   const [result, setResult] = useState<GradingResult | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState("overview")
   const [selectedCorrection, setSelectedCorrection] = useState<InlineCorrection | null>(null)
-  const [acceptedCorrections, setAcceptedCorrections] = useState<Set<string>>(new Set())
-  const [rejectedCorrections, setRejectedCorrections] = useState<Set<string>>(new Set())
+  const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set())
+  const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set())
+  const [copied, setCopied] = useState(false)
 
-  const [gradingError, setGradingError] = useState<string | null>(null)
+  const charHint = questionType === "53" ? { min: 200, max: 300 } : questionType === "54" ? { min: 600, max: 700 } : null
+  const charColor = charHint ? (essayText.length >= charHint.min && essayText.length <= charHint.max ? "#4A7C59" : essayText.length > 0 ? "#D97706" : "#A3C4AC") : "#A3C4AC"
 
   const handleGrade = async () => {
-    if (!selectedQuestion || !essayText.trim()) return
-
-    setIsGrading(true)
-    setGradingError(null)
-    setSelectedCorrection(null)
-    setAcceptedCorrections(new Set())
-    setRejectedCorrections(new Set())
-
+    if (!questionType || !essayText.trim()) return
+    setIsGrading(true); setError(null); setResult(null)
+    setSelectedCorrection(null); setAcceptedIds(new Set()); setRejectedIds(new Set())
     try {
-      const response = await fetch("/api/grade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          questionType: selectedQuestion,
-          topic: topic,
-          essay: essayText,
-        }),
+      const res = await fetch("/api/grade", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questionType, topic, essay: essayText }),
       })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Đã có lỗi xảy ra")
-      }
-
-      const gradingResult: GradingResult = await response.json()
-      setResult(gradingResult)
-    } catch (error) {
-      console.error("Grading error:", error)
-      setGradingError(
-        error instanceof Error ? error.message : "Đã có lỗi xảy ra khi chấm bài. Vui lòng thử lại."
-      )
-    } finally {
-      setIsGrading(false)
-    }
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Đã có lỗi xảy ra") }
+      const data: GradingResult = await res.json()
+      setResult(data); setActiveTab("overview")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Đã có lỗi xảy ra")
+    } finally { setIsGrading(false) }
   }
 
-  const handleCopy = async () => {
-    if (result) {
-      await navigator.clipboard.writeText(result.suggestedEssay)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
-  }
+  useEffect(() => {
+    const handler = () => setSelectedCorrection(null)
+    document.addEventListener("click", handler)
+    return () => document.removeEventListener("click", handler)
+  }, [])
 
-  const handleDownload = () => {
-    if (result) {
-      const blob = new Blob([result.suggestedEssay], { type: "text/plain;charset=utf-8" })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `topik_suggested_essay_${new Date().toISOString().split('T')[0]}.txt`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    }
-  }
-
-  const handleAcceptCorrection = (id: string) => {
-    setAcceptedCorrections(prev => new Set(prev).add(id))
-    setRejectedCorrections(prev => {
-      const newSet = new Set(prev)
-      newSet.delete(id)
-      return newSet
-    })
-  }
-
-  const handleRejectCorrection = (id: string) => {
-    setRejectedCorrections(prev => new Set(prev).add(id))
-    setAcceptedCorrections(prev => {
-      const newSet = new Set(prev)
-      newSet.delete(id)
-      return newSet
-    })
-  }
-
-  const getCharacterHint = () => {
-    if (selectedQuestion === "53") {
-      return { min: 200, max: 300, label: "200~300 ký tự" }
-    }
-    if (selectedQuestion === "54") {
-      return { min: 600, max: 700, label: "600~700 ký tự" }
-    }
-    return null
-  }
-
-  const characterHint = getCharacterHint()
-
-  // Render essay with inline corrections
-  const renderCorrectedEssay = () => {
+  const renderEssay = () => {
     if (!result) return null
-
-    const essay = result.originalEssay || essayText || ""
-    const corrections = result.inlineCorrections || []
-    
-    if (!essay) return <span>{essayText}</span>
-
-    const validCorrections = corrections.filter((c: any) => 
-      c && c.wrong && typeof c.position === "number" &&
-      c.position >= 0 && c.position < essay.length &&
+    const essay = result.originalEssay || essayText
+    const corrections = (result.inlineCorrections || []).filter(c =>
+      c?.wrong && typeof c.position === "number" && c.position >= 0 && c.position < essay.length &&
       essay.substring(c.position, c.position + c.wrong.length) === c.wrong
-    )
-
-    if (validCorrections.length === 0) {
-      return <span>{essay}</span>
-    }
-
-    const segments: React.ReactNode[] = []
-    let lastIndex = 0
-
-    const sortedCorrections = [...validCorrections].sort((a: any, b: any) => a.position - b.position)
-
-    sortedCorrections.forEach((correction: any, idx: number) => {
-      if (correction.position < lastIndex) return
-
-      const textBefore = essay.substring(lastIndex, correction.position)
-      if (textBefore) {
-        segments.push(<span key={`text-${idx}`}>{textBefore}</span>)
-      }
-
-      const isAccepted = acceptedCorrections.has(correction.id)
-      const isRejected = rejectedCorrections.has(correction.id)
-      const isSelected = selectedCorrection?.id === correction.id
-
-      const isSuggestion = correction.type === "suggestion"
-      const typeInfo = errorTypeLabels[correction.type as ErrorType] || errorTypeLabels["grammar"]
-      
-      segments.push(
-        <span
-          key={`correction-${correction.id}`}
-          className={`
-            inline cursor-pointer transition-all duration-200
-            ${isSelected ? "ring-2 ring-primary ring-offset-1 rounded" : ""}
-          `}
-          onClick={() => setSelectedCorrection(correction)}
-        >
-          {/* Wrong text - red background with strikethrough */}
-          {!isAccepted && !isRejected && (
-            <span
-              className={`
-                px-1 rounded-sm
-                ${isSuggestion
-                  ? "bg-blue-100 text-blue-700 line-through decoration-blue-500 decoration-2"
-                  : "bg-red-100 text-red-600 line-through decoration-red-500 decoration-2"
-                }
-              `}
-            >
-              {correction.wrong}
-            </span>
-          )}
-          {/* Correct text - green/blue text directly after (no brackets) */}
-          {!isRejected && (
-            <span
-              className={`
-                px-1 rounded-sm font-medium
-                ${isSuggestion
-                  ? "bg-cyan-100 text-cyan-700"
-                  : "bg-green-100 text-green-700"
-                }
-              `}
-            >
-              {correction.correct}
-            </span>
-          )}
-          {/* Show only wrong text when rejected */}
-          {isRejected && (
-            <span className="text-foreground">
-              {correction.wrong}
-            </span>
-          )}
+    ).sort((a, b) => a.position - b.position)
+    if (!corrections.length) return <span style={{ whiteSpace: "pre-wrap" }}>{essay}</span>
+    const parts: React.ReactNode[] = []
+    let last = 0
+    corrections.forEach((c, i) => {
+      if (c.position < last) return
+      if (c.position > last) parts.push(<span key={"t" + i} style={{ whiteSpace: "pre-wrap" }}>{essay.substring(last, c.position)}</span>)
+      const col = errorColors[c.type] || errorColors.grammar
+      const isAcc = acceptedIds.has(c.id)
+      const isRej = rejectedIds.has(c.id)
+      parts.push(
+        <span key={"c" + c.id} onClick={(e) => { e.stopPropagation(); setSelectedCorrection(selectedCorrection?.id === c.id ? null : c) }}
+          style={{ cursor: "pointer", display: "inline", borderRadius: 4, padding: "1px 2px", outline: selectedCorrection?.id === c.id ? "2px solid " + col.border : "none", outlineOffset: 1 }}>
+          {!isAcc && !isRej && <span style={{ background: col.bg, color: col.text, textDecoration: "line-through", borderBottom: "2px solid " + col.border, borderRadius: "3px 3px 0 0", padding: "1px 3px" }}>{c.wrong}</span>}
+          {!isRej && <span style={{ background: "#E8F5EC", color: "#2D5A3D", fontWeight: 600, borderRadius: "0 0 3px 3px", border: "1px solid #86EFAC", padding: "1px 4px", marginLeft: 1 }}>{c.correct}</span>}
+          {isRej && <span style={{ whiteSpace: "pre-wrap" }}>{c.wrong}</span>}
         </span>
       )
-
-      lastIndex = correction.position + correction.wrong.length
+      last = c.position + c.wrong.length
     })
-
-    // Add remaining text
-    if (lastIndex < essay.length) {
-      segments.push(<span key="text-end">{essay.substring(lastIndex)}</span>)
-    }
-
-    return segments
+    if (last < essay.length) parts.push(<span key="end" style={{ whiteSpace: "pre-wrap" }}>{essay.substring(last)}</span>)
+    return parts
   }
 
+  const getScoreItems = () => {
+    if (!result) return []
+    const sb = result.scoreBreakdown
+    if (sb.type === "53") return [
+      { label: "Nội dung (내용)", score: sb.content, max: 10, color: "#4A7C59" },
+      { label: "Từ vựng & Ngữ pháp (어휘·문법)", score: sb.vocabGrammar, max: 10, color: "#7B9E6B" },
+      { label: "Bố cục & Diễn đạt (구성·표현)", score: sb.structureExpression, max: 10, color: "#A8D5B5" },
+    ]
+    return [
+      { label: "Nội dung (내용)", score: sb.content, max: 15, color: "#4A7C59" },
+      { label: "Lập luận & Mạch lạc (구성·논리)", score: sb.logicCoherence, max: 15, color: "#7B9E6B" },
+      { label: "Từ vựng (어휘)", score: sb.vocabulary, max: 10, color: "#A8D5B5" },
+      { label: "Ngữ pháp (문법)", score: sb.grammar, max: 10, color: "#C5E8D0" },
+    ]
+  }
+
+  const tabs = [
+    { id: "overview", label: "Nhận xét chung" },
+    { id: "corrections", label: "Từ vựng & Ngữ pháp" },
+    { id: "logic", label: "Lập luận & Mạch lạc" },
+    { id: "vocabulary", label: "Từ vựng theo chủ đề" },
+    { id: "suggested", label: "Bài viết đề xuất" },
+  ]
+
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8 max-w-5xl">
-        {/* Premium Header */}
-        <header className="text-center mb-12">
-          <div className="inline-flex items-center justify-center gap-3 mb-5">
-            <div className="relative">
-              <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
-              <div className="relative p-4 bg-gradient-to-br from-primary/10 to-accent/10 rounded-2xl border border-primary/20">
-                <PenLine className="w-10 h-10 text-primary" />
-              </div>
+    <div style={{ minHeight: "100vh", background: "#F7FBF8", fontFamily: "system-ui, -apple-system, sans-serif" }}>
+      <div style={{ background: "linear-gradient(135deg, #2D5A3D 0%, #4A7C59 50%, #7B9E6B 100%)", padding: "48px 24px 40px", textAlign: "center", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", inset: 0, backgroundImage: "radial-gradient(circle at 20% 50%, rgba(168,213,181,0.15) 0%, transparent 50%)" }} />
+        <div style={{ position: "relative" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", borderRadius: 99, padding: "6px 18px", marginBottom: 20, border: "1px solid rgba(255,255,255,0.2)" }}>
+            <span style={{ fontSize: 13, color: "rgba(255,255,255,0.9)", fontWeight: 500, letterSpacing: 1 }}>✦ CHIXIEUNHAN</span>
+          </div>
+          <h1 style={{ fontSize: "clamp(24px, 5vw, 38px)", fontWeight: 800, color: "#ffffff", margin: "0 0 8px", letterSpacing: -0.5 }}>AI Chấm Bài TOPIK</h1>
+          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 16, margin: "0 0 6px" }}>TOPIK II 쓰기 자동 첨삭 서비스</p>
+          <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, margin: 0 }}>Chấm điểm & nhận xét chi tiết theo tiêu chí TOPIK II</p>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 16px" }}>
+        <div style={{ background: "#ffffff", borderRadius: 20, boxShadow: "0 4px 24px rgba(45,90,61,0.08)", padding: 32, marginBottom: 24, border: "1px solid #E8F5EC" }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#2D5A3D", margin: "0 0 24px" }}>✏️ Nhập bài viết</h2>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: "block", fontSize: 14, fontWeight: 600, color: "#4A7C59", marginBottom: 8 }}>Loại câu hỏi</label>
+            <div style={{ display: "flex", gap: 12 }}>
+              {["53", "54"].map(q => (
+                <button key={q} onClick={() => setQuestionType(q)} style={{ flex: 1, padding: "12px 16px", borderRadius: 12, border: questionType === q ? "2px solid #4A7C59" : "2px solid #E8F5EC", background: questionType === q ? "#F0FAF4" : "#FAFAFA", cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ fontWeight: 700, color: questionType === q ? "#2D5A3D" : "#6B9E7A", fontSize: 15 }}>Câu {q}</div>
+                  <div style={{ fontSize: 12, color: "#A3C4AC", marginTop: 2 }}>{q === "53" ? "200~300 ký tự · 30 điểm" : "600~700 ký tự · 50 điểm"}</div>
+                </button>
+              ))}
             </div>
           </div>
-          
-          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2 text-balance">
-            AI TOPIK Writing Grader
-          </h1>
-          <p className="text-primary font-medium text-lg mb-3">
-            TOPIK 쓰기 자동 첨삭 서비스
-          </p>
-          <p className="text-muted-foreground max-w-xl mx-auto mb-4 leading-relaxed">
-            Hệ thống chấm điểm và nhận xét bài viết TOPIK tự động bằng AI. 
-            Nhận phản hồi chi tiết như giáo viên thực sự.
-          </p>
-          
-          <Badge variant="secondary" className="bg-secondary/80 text-secondary-foreground px-4 py-1.5 text-sm font-medium">
-            <Award className="w-4 h-4 mr-1.5" />
-            Dành cho TOPIK 53 & 54
-          </Badge>
-        </header>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: "block", fontSize: 14, fontWeight: 600, color: "#4A7C59", marginBottom: 8 }}>Chủ đề <span style={{ fontWeight: 400, color: "#A3C4AC" }}>(không bắt buộc)</span></label>
+            <input value={topic} onChange={e => setTopic(e.target.value)} placeholder="Ví dụ: 기술 발전의 영향..." style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "1.5px solid #E8F5EC", fontSize: 15, color: "#2D5A3D", background: "#FAFFFE", outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: "block", fontSize: 14, fontWeight: 600, color: "#4A7C59", marginBottom: 8 }}>Bài viết của học viên</label>
+            <textarea value={essayText} onChange={e => setEssayText(e.target.value)} placeholder="Dán bài viết tiếng Hàn vào đây..." rows={8} style={{ width: "100%", padding: "16px", borderRadius: 12, border: "1.5px solid #E8F5EC", fontSize: 15, color: "#2D5A3D", background: "#FAFFFE", outline: "none", resize: "vertical", lineHeight: 1.8, boxSizing: "border-box" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+              <span style={{ fontSize: 13, color: "#A3C4AC" }}>Số ký tự: <strong style={{ color: "#4A7C59" }}>{essayText.length}</strong></span>
+              {charHint && <span style={{ fontSize: 13, fontWeight: 600, color: charColor }}>Khuyến nghị: {charHint.min}~{charHint.max} ký tự</span>}
+            </div>
+          </div>
+          <button onClick={handleGrade} disabled={!questionType || !essayText.trim() || isGrading} style={{ width: "100%", padding: "16px", borderRadius: 14, background: !questionType || !essayText.trim() || isGrading ? "#C5E8D0" : "linear-gradient(135deg, #2D5A3D, #4A7C59)", color: "#ffffff", border: "none", cursor: !questionType || !essayText.trim() || isGrading ? "not-allowed" : "pointer", fontSize: 17, fontWeight: 700, boxShadow: "0 8px 24px rgba(45,90,61,0.25)", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+            {isGrading ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>✦</span> AI đang phân tích...</> : <>✦ Chấm bài ngay</>}
+          </button>
+          {error && <div style={{ marginTop: 16, padding: "14px 16px", borderRadius: 12, background: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B", fontSize: 14 }}>⚠️ {error}</div>}
+        </div>
 
-        {/* Main Content */}
-        <div className="space-y-6">
-          {/* Form Card */}
-          <Card className="border-border/40 shadow-lg shadow-primary/5">
-            <CardHeader className="pb-4">
-              <CardTitle className="flex items-center gap-2 text-xl font-semibold">
-                <BookOpen className="w-5 h-5 text-primary" />
-                Nhập bài viết
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {/* Question Type Selector */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-foreground">
-                  Loại câu hỏi
-                </Label>
-                <Select value={selectedQuestion} onValueChange={setSelectedQuestion}>
-                  <SelectTrigger className="w-full bg-input/50 border-border/50 h-12 text-base">
-                    <SelectValue placeholder="Chọn loại câu hỏi TOPIK" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="53">
-                      <span className="font-medium">TOPIK 53</span>
-                      <span className="text-muted-foreground ml-2">- Điền vào chỗ trống (200~300 ký tự)</span>
-                    </SelectItem>
-                    <SelectItem value="54">
-                      <span className="font-medium">TOPIK 54</span>
-                      <span className="text-muted-foreground ml-2">- Bài luận (600~700 ký tự)</span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Optional Topic Input */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-foreground">
-                  Chủ đề bài viết <span className="text-muted-foreground font-normal">(không bắt buộc)</span>
-                </Label>
-                <Input
-                  placeholder="Ví dụ: 기술 발전의 영향, 환경 보호의 중요성..."
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  className="bg-input/50 border-border/50 h-11"
-                />
-              </div>
-
-              {/* Essay Textarea */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium text-foreground">
-                  Bài viết của học viên
-                </Label>
-                <Textarea
-                  placeholder="Dán bài viết tiếng Hàn của học viên vào đây..."
-                  className="min-h-[220px] bg-input/50 border-border/50 resize-none text-base leading-relaxed"
-                  value={essayText}
-                  onChange={(e) => setEssayText(e.target.value)}
-                />
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">
-                    Số ký tự: <span className="font-medium text-foreground">{essayText.length}</span>
-                  </span>
-                  {characterHint && (
-                    <span className={`font-medium ${
-                      essayText.length >= characterHint.min && essayText.length <= characterHint.max
-                        ? "text-green-600"
-                        : essayText.length > 0
-                        ? "text-amber-600"
-                        : "text-muted-foreground"
-                    }`}>
-                      Khuyến nghị: {characterHint.label}
-                    </span>
-                  )}
+        {result && (
+          <div style={{ background: "#ffffff", borderRadius: 20, boxShadow: "0 4px 24px rgba(45,90,61,0.08)", border: "1px solid #E8F5EC", overflow: "hidden" }}>
+            <div style={{ background: "linear-gradient(135deg, #2D5A3D, #4A7C59)", padding: "32px 32px 28px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 32, flexWrap: "wrap" }}>
+                <AnimatedScore score={result.scoreBreakdown.total} max={result.questionType === "53" ? 30 : 50} color="#A8D5B5" />
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, marginBottom: 4 }}>Điểm câu {result.questionType}</div>
+                  <div style={{ color: "#ffffff", fontSize: 32, fontWeight: 800, lineHeight: 1, marginBottom: 16 }}>
+                    {result.scoreBreakdown.total}<span style={{ fontSize: 18, fontWeight: 400, color: "rgba(255,255,255,0.6)" }}>/{result.questionType === "53" ? 30 : 50}</span>
+                  </div>
+                  {getScoreItems().map(item => (
+                    <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", minWidth: 200 }}>{item.label}</span>
+                      <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.2)", borderRadius: 99, overflow: "hidden" }}>
+                        <div style={{ height: "100%", background: item.color, borderRadius: 99, width: (item.score / item.max * 100) + "%" }} />
+                      </div>
+                      <span style={{ fontSize: 13, color: "#ffffff", fontWeight: 700, minWidth: 40, textAlign: "right" }}>{item.score}/{item.max}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
+            </div>
 
-              {/* Grade Button */}
-              <Button
-                onClick={handleGrade}
-                disabled={!selectedQuestion || !essayText.trim() || isGrading}
-                className="w-full h-14 text-lg font-semibold bg-primary hover:bg-primary/90 transition-all duration-300 shadow-lg shadow-primary/20"
-              >
-                {isGrading ? (
-                  <>
-                    <div className="relative mr-3">
-                      <Sparkles className="w-5 h-5 animate-pulse" />
-                      <div className="absolute inset-0 animate-ping">
-                        <Sparkles className="w-5 h-5 opacity-50" />
-                      </div>
+            <div style={{ display: "flex", overflowX: "auto", borderBottom: "2px solid #E8F5EC", background: "#FAFFFE" }}>
+              {tabs.map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ padding: "14px 20px", border: "none", background: "none", cursor: "pointer", whiteSpace: "nowrap", fontSize: 14, fontWeight: activeTab === tab.id ? 700 : 500, color: activeTab === tab.id ? "#2D5A3D" : "#A3C4AC", borderBottom: activeTab === tab.id ? "2px solid #4A7C59" : "2px solid transparent", marginBottom: -2 }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ padding: 28 }}>
+              {activeTab === "overview" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  <div style={{ padding: 20, background: "#F7FBF8", borderRadius: 14, border: "1px solid #E8F5EC" }}>
+                    <p style={{ margin: 0, color: "#4A7C59", lineHeight: 1.8, fontSize: 15 }}>{result.generalFeedback.overview}</p>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                    <div style={{ padding: 20, background: "#F0FAF4", borderRadius: 14, border: "1px solid #C5E8D0" }}>
+                      <div style={{ fontWeight: 700, color: "#2D5A3D", marginBottom: 14, fontSize: 15 }}>✅ Điểm mạnh</div>
+                      {result.generalFeedback.strengths.map((s, i) => <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}><span style={{ color: "#4A7C59" }}>◆</span><span style={{ fontSize: 14, color: "#4A7C59", lineHeight: 1.6 }}>{s}</span></div>)}
                     </div>
-                    AI đang phân tích bài viết...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-5 h-5 mr-2" />
-                    Chấm bài ngay
-                  </>
-                )}
-              </Button>
-
-              {/* Error Display */}
-              {gradingError && (
-                <div className="p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-red-800 mb-1">Lỗi chấm bài</p>
-                    <p className="text-sm text-red-700">{gradingError}</p>
+                    <div style={{ padding: 20, background: "#FFFBF0", borderRadius: 14, border: "1px solid #FCD34D" }}>
+                      <div style={{ fontWeight: 700, color: "#92400E", marginBottom: 14, fontSize: 15 }}>⚠️ Cần cải thiện</div>
+                      {result.generalFeedback.weaknesses.map((w, i) => <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}><span style={{ color: "#D97706" }}>◆</span><span style={{ fontSize: 14, color: "#92400E", lineHeight: 1.6 }}>{w}</span></div>)}
+                    </div>
+                  </div>
+                  <div style={{ padding: 20, background: "#F7FBF8", borderRadius: 14, border: "1px solid #E8F5EC", borderLeft: "4px solid #4A7C59" }}>
+                    <div style={{ fontWeight: 700, color: "#2D5A3D", marginBottom: 10, fontSize: 15 }}>💬 Lời nhận xét của giáo viên</div>
+                    <p style={{ margin: 0, color: "#4A7C59", lineHeight: 1.8, fontSize: 15, fontStyle: "italic" }}>"{result.generalFeedback.teacherComment}"</p>
                   </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
 
-          {/* Results Card */}
-          {result && (
-            <Card className="border-border/40 shadow-lg shadow-primary/5 overflow-hidden">
-              <CardHeader className="pb-4 bg-gradient-to-r from-secondary/50 to-accent/20 border-b border-border/30">
-                <CardTitle className="flex items-center gap-2 text-xl font-semibold">
-                  <CheckCircle className="w-5 h-5 text-primary" />
-                  Kết quả chấm bài
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Tabs defaultValue="general" className="w-full">
-                  <TabsList className="w-full justify-start rounded-none border-b border-border/30 bg-muted/20 p-0 h-auto flex-wrap">
-                    <TabsTrigger
-                      value="general"
-                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none px-4 md:px-6 py-3.5 font-medium"
-                    >
-                      <MessageSquare className="w-4 h-4 mr-1.5 hidden sm:inline" />
-                      Nhận xét chung
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="corrections"
-                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none px-4 md:px-6 py-3.5 font-medium"
-                    >
-                      <PenLine className="w-4 h-4 mr-1.5 hidden sm:inline" />
-                      Từ vựng & Ngữ pháp
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="logic"
-                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none px-4 md:px-6 py-3.5 font-medium"
-                    >
-                      <Layers className="w-4 h-4 mr-1.5 hidden sm:inline" />
-                      Lập luận & Mạch lạc
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="suggested"
-                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none px-4 md:px-6 py-3.5 font-medium"
-                    >
-                      <Lightbulb className="w-4 h-4 mr-1.5 hidden sm:inline" />
-                      Bài viết đề xuất
-                    </TabsTrigger>
-                  </TabsList>
-
-                  {/* Tab 1: General Feedback */}
-                  <TabsContent value="general" className="p-6 mt-0 space-y-5">
-                    {/* Overview */}
-                    <div className="p-4 rounded-xl bg-muted/30 border border-border/50">
-                      <p className="text-foreground leading-relaxed">{result.generalFeedback.overview}</p>
-                    </div>
-
-                    {/* Score Breakdown Card */}
-                    <div className="p-5 rounded-xl bg-gradient-to-br from-primary/5 via-accent/5 to-secondary/10 border border-primary/20">
-                      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-primary/10">
-                        <div className="p-2.5 bg-primary/15 rounded-xl">
-                          <Award className="w-6 h-6 text-primary" />
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Điểm câu {result.questionType}</p>
-                          <p className="text-3xl font-bold text-primary">
-                            {result.scoreBreakdown.total} / {result.questionType === "53" ? "30" : "50"}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      {/* Detailed Score Breakdown */}
-                      <div className="space-y-3">
-                        {result.scoreBreakdown.type === "53" ? (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">Nội dung (내용)</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary rounded-full transition-all" 
-                                    style={{ width: `${(result.scoreBreakdown.content / 10) * 100}%` }} 
-                                  />
-                                </div>
-                                <span className="text-sm font-semibold text-foreground w-12 text-right">{result.scoreBreakdown.content}/10</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">Từ vựng & Ngữ pháp (어휘·문법)</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary rounded-full transition-all" 
-                                    style={{ width: `${(result.scoreBreakdown.vocabGrammar / 10) * 100}%` }} 
-                                  />
-                                </div>
-                                <span className="text-sm font-semibold text-foreground w-12 text-right">{result.scoreBreakdown.vocabGrammar}/10</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">Bố cục & Diễn đạt (구성·표현)</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary rounded-full transition-all" 
-                                    style={{ width: `${(result.scoreBreakdown.structureExpression / 10) * 100}%` }} 
-                                  />
-                                </div>
-                                <span className="text-sm font-semibold text-foreground w-12 text-right">{result.scoreBreakdown.structureExpression}/10</span>
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">Nội dung (내용)</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary rounded-full transition-all" 
-                                    style={{ width: `${(result.scoreBreakdown.content / 15) * 100}%` }} 
-                                  />
-                                </div>
-                                <span className="text-sm font-semibold text-foreground w-12 text-right">{result.scoreBreakdown.content}/15</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">Lập luận & Mạch lạc (구성·논리)</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary rounded-full transition-all" 
-                                    style={{ width: `${(result.scoreBreakdown.logicCoherence / 15) * 100}%` }} 
-                                  />
-                                </div>
-                                <span className="text-sm font-semibold text-foreground w-12 text-right">{result.scoreBreakdown.logicCoherence}/15</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">Từ vựng (어휘)</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary rounded-full transition-all" 
-                                    style={{ width: `${(result.scoreBreakdown.vocabulary / 10) * 100}%` }} 
-                                  />
-                                </div>
-                                <span className="text-sm font-semibold text-foreground w-12 text-right">{result.scoreBreakdown.vocabulary}/10</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">Ngữ pháp (문법)</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-primary rounded-full transition-all" 
-                                    style={{ width: `${(result.scoreBreakdown.grammar / 10) * 100}%` }} 
-                                  />
-                                </div>
-                                <span className="text-sm font-semibold text-foreground w-12 text-right">{result.scoreBreakdown.grammar}/10</span>
-                              </div>
-                            </div>
-                          </>
-                        )}
+              {activeTab === "corrections" && (
+                <div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+                    {Object.entries(errorColors).map(([type, col]) => (
+                      <span key={type} style={{ padding: "3px 10px", borderRadius: 99, fontSize: 12, background: col.bg, color: col.text, border: "1px solid " + col.border }}>{col.label}</span>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                    <div style={{ flex: 2, minWidth: 280 }}>
+                      <div style={{ fontSize: 13, color: "#A3C4AC", marginBottom: 10 }}>Nhấn vào phần tô màu để xem chi tiết</div>
+                      <div style={{ padding: 20, background: "#FAFFFE", borderRadius: 14, border: "1px solid #E8F5EC", fontSize: 16, lineHeight: 2, color: "#2D5A3D" }}>{renderEssay()}</div>
+                      <div style={{ marginTop: 12, display: "flex", gap: 20, fontSize: 13 }}>
+                        <span style={{ color: "#6B9E7A" }}>Tổng lỗi: <strong>{result.inlineCorrections.length}</strong></span>
+                        <span style={{ color: "#4A7C59" }}>Đã chấp nhận: <strong>{acceptedIds.size}</strong></span>
                       </div>
                     </div>
-
-                    {/* Strengths */}
-                    <div className="p-4 rounded-xl bg-green-50 border border-green-200">
-                      <div className="flex items-center gap-2 mb-3">
-                        <TrendingUp className="w-5 h-5 text-green-600" />
-                        <h4 className="font-semibold text-green-800">Điểm mạnh</h4>
-                      </div>
-                      <ul className="space-y-2">
-                        {result.generalFeedback.strengths.map((strength, index) => (
-                          <li key={index} className="flex items-start gap-2 text-green-700">
-                            <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                            <span>{strength}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    {/* Weaknesses */}
-                    <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
-                      <div className="flex items-center gap-2 mb-3">
-                        <AlertTriangle className="w-5 h-5 text-amber-600" />
-                        <h4 className="font-semibold text-amber-800">Cần cải thiện</h4>
-                      </div>
-                      <ul className="space-y-2">
-                        {result.generalFeedback.weaknesses.map((weakness, index) => (
-                          <li key={index} className="flex items-start gap-2 text-amber-700">
-                            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                            <span>{weakness}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    {/* Teacher Comment */}
-                    <div className="p-4 rounded-xl bg-secondary/50 border border-secondary">
-                      <div className="flex items-center gap-2 mb-3">
-                        <MessageSquare className="w-5 h-5 text-secondary-foreground" />
-                        <h4 className="font-semibold text-secondary-foreground">Nhận xét của giáo viên</h4>
-                      </div>
-                      <p className="text-secondary-foreground leading-relaxed italic">
-                        "{result.generalFeedback.teacherComment}"
-                      </p>
-                    </div>
-                  </TabsContent>
-
-                  {/* Tab 2: Vocabulary & Grammar - Interactive Inline Correction */}
-                  <TabsContent value="corrections" className="mt-0">
-                    <div className="flex flex-col lg:flex-row min-h-[500px]">
-                      {/* Left Column - Corrected Essay Viewer */}
-                      <div className="flex-1 p-6 border-b lg:border-b-0 lg:border-r border-border/30">
-                        <div className="mb-4">
-                          <h3 className="font-semibold text-foreground mb-2 flex items-center gap-2">
-                            <PenLine className="w-4 h-4 text-primary" />
-                            Bài viết đã được đánh dấu lỗi
-                          </h3>
-                          <p className="text-sm text-muted-foreground">
-                            Nhấn vào các phần được đánh dấu để xem chi tiết và chấp nhận/từ chối sửa lỗi.
-                          </p>
-                        </div>
-
-{/* Legend */}
-                            <div className="flex flex-wrap gap-3 mb-4 p-3 bg-muted/30 rounded-lg">
-                              <span className="text-xs text-muted-foreground mr-2">Chú thích:</span>
-                              <span className="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded line-through decoration-2">Lỗi sai</span>
-                              <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded font-medium">Sửa thành</span>
-                              <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded line-through decoration-2">Đề xuất</span>
-                              <span className="text-xs px-2 py-0.5 bg-cyan-100 text-cyan-700 rounded font-medium">Gợi ý</span>
+                    <div style={{ flex: 1, minWidth: 240 }}>
+                      {selectedCorrection ? (() => {
+                        const col = errorColors[selectedCorrection.type] || errorColors.grammar
+                        return (
+                          <div style={{ padding: 20, background: "#ffffff", borderRadius: 14, border: "1.5px solid " + col.border, boxShadow: "0 4px 20px rgba(45,90,61,0.1)", position: "sticky", top: 20 }} onClick={e => e.stopPropagation()}>
+                            <span style={{ display: "inline-block", padding: "3px 12px", borderRadius: 99, background: col.bg, color: col.text, fontSize: 12, border: "1px solid " + col.border, marginBottom: 14 }}>{col.label}</span>
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 12, color: "#A3C4AC", marginBottom: 4 }}>Lỗi gốc</div>
+                              <div style={{ padding: "8px 12px", background: "#FEF2F2", borderRadius: 8, color: "#991B1B", fontWeight: 600, textDecoration: "line-through", fontSize: 15 }}>{selectedCorrection.wrong}</div>
                             </div>
-
-                        {/* Essay with Inline Corrections */}
-                        <div className="p-5 bg-card rounded-xl border border-border/50 shadow-sm">
-                          <div className="text-base leading-loose whitespace-pre-line text-foreground">
-                            {renderCorrectedEssay()}
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 12, color: "#A3C4AC", marginBottom: 4 }}>Sửa thành</div>
+                              <div style={{ padding: "8px 12px", background: "#F0FAF4", borderRadius: 8, color: "#2D5A3D", fontWeight: 600, fontSize: 15 }}>{selectedCorrection.correct}</div>
+                            </div>
+                            <div style={{ marginBottom: 16 }}>
+                              <div style={{ fontSize: 12, color: "#A3C4AC", marginBottom: 4 }}>Giải thích</div>
+                              <div style={{ padding: "10px 12px", background: "#F7FBF8", borderRadius: 8, color: "#4A7C59", fontSize: 13, lineHeight: 1.7, borderLeft: "3px solid #4A7C59" }}>{selectedCorrection.explanation}</div>
+                            </div>
+                            <div style={{ display: "flex", gap: 10 }}>
+                              <button onClick={() => { setAcceptedIds(p => { const n = new Set(p); n.add(selectedCorrection.id); return n }); setRejectedIds(p => { const n = new Set(p); n.delete(selectedCorrection.id); return n }) }} style={{ flex: 1, padding: 10, borderRadius: 10, background: acceptedIds.has(selectedCorrection.id) ? "#2D5A3D" : "#F0FAF4", color: acceptedIds.has(selectedCorrection.id) ? "#ffffff" : "#2D5A3D", border: "1.5px solid #4A7C59", cursor: "pointer", fontWeight: 600, fontSize: 14 }}>✓ Chấp nhận</button>
+                              <button onClick={() => { setRejectedIds(p => { const n = new Set(p); n.add(selectedCorrection.id); return n }); setAcceptedIds(p => { const n = new Set(p); n.delete(selectedCorrection.id); return n }) }} style={{ flex: 1, padding: 10, borderRadius: 10, background: rejectedIds.has(selectedCorrection.id) ? "#6B7280" : "#F9FAFB", color: rejectedIds.has(selectedCorrection.id) ? "#ffffff" : "#6B7280", border: "1.5px solid #D1D5DB", cursor: "pointer", fontWeight: 600, fontSize: 14 }}>✕ Từ chối</button>
+                            </div>
                           </div>
+                        )
+                      })() : (
+                        <div style={{ padding: 32, textAlign: "center", background: "#F7FBF8", borderRadius: 14, border: "1px dashed #C5E8D0", color: "#A3C4AC" }}>
+                          <div style={{ fontSize: 32, marginBottom: 12 }}>✏️</div>
+                          <div style={{ fontSize: 14 }}>Nhấn vào phần được tô màu để xem chi tiết</div>
                         </div>
-
-                        {/* Stats */}
-                        <div className="mt-4 flex flex-wrap gap-4 text-sm">
-                          <span className="text-muted-foreground">
-                            Tổng số lỗi: <span className="font-semibold text-foreground">{result.inlineCorrections.length}</span>
-                          </span>
-                          <span className="text-green-600">
-                            Đã chấp nhận: <span className="font-semibold">{acceptedCorrections.size}</span>
-                          </span>
-                          <span className="text-red-600">
-                            Đã từ chối: <span className="font-semibold">{rejectedCorrections.size}</span>
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Right Column - Detail Panel */}
-                      <div className="w-full lg:w-96 p-6 bg-muted/10">
-                        {selectedCorrection ? (
-                          <div className="sticky top-4">
-                            {(() => {
-                              const isSuggestion = selectedCorrection.type === "suggestion"
-                              const typeInfo = errorTypeLabels[selectedCorrection.type]
-                              return (
-                                <>
-                                  {/* Panel Header */}
-                                  <div className="flex items-center justify-between mb-4">
-                                    <h3 className="font-semibold text-foreground">
-                                      {isSuggestion ? "Chi tiết đề xuất" : "Chi tiết lỗi"}
-                                    </h3>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() => setSelectedCorrection(null)}
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-
-                                  {/* Detail Card */}
-                                  <div className="bg-card rounded-xl border border-border/50 shadow-lg overflow-hidden">
-                                    {/* Error Type Badge */}
-                                    <div className={`p-4 border-b border-border/30 ${isSuggestion ? "bg-gradient-to-r from-blue-50 to-transparent" : "bg-gradient-to-r from-muted/50 to-transparent"}`}>
-                                      <Badge className={`${typeInfo.bgColor} ${typeInfo.color} border-0`}>
-                                        {typeInfo.label}
-                                      </Badge>
-                                      {isSuggestion && (
-                                        <p className="text-xs text-blue-600 mt-2">
-                                          Cấu trúc hiện tại đúng ngữ pháp. Đây chỉ là gợi ý về phong cách.
-                                        </p>
-                                      )}
-                                    </div>
-
-                                    <div className="p-4 space-y-4">
-                                      {/* Context */}
-                                      <div>
-                                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">
-                                          Ngữ cảnh
-                                        </label>
-                                        <p className="text-sm text-foreground bg-muted/30 p-3 rounded-lg italic">
-                                          "...{selectedCorrection.context}..."
-                                        </p>
-                                      </div>
-
-                                      {/* Wrong/Original */}
-                                      <div>
-                                        <label className={`text-xs font-semibold uppercase tracking-wide mb-1.5 block ${isSuggestion ? "text-blue-600" : "text-red-600"}`}>
-                                          {isSuggestion ? "Cách viết hiện tại" : "Lỗi gốc"}
-                                        </label>
-                                        <div className={`px-4 py-3 rounded-lg ${isSuggestion ? "bg-blue-50 border border-blue-200" : "bg-red-50 border border-red-200"}`}>
-                                          <span className={`font-medium text-lg ${isSuggestion ? "text-blue-700" : "text-red-700 line-through decoration-2"}`}>
-                                            {selectedCorrection.wrong}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      {/* Correct/Suggested */}
-                                      <div>
-                                        <label className={`text-xs font-semibold uppercase tracking-wide mb-1.5 block ${isSuggestion ? "text-blue-600" : "text-green-600"}`}>
-                                          {isSuggestion ? "Đề xuất gọn hơn" : "Sửa thành"}
-                                        </label>
-                                        <div className={`px-4 py-3 rounded-lg ${isSuggestion ? "bg-blue-50 border border-blue-200" : "bg-green-50 border border-green-200"}`}>
-                                          <span className={`font-medium text-lg ${isSuggestion ? "text-blue-700" : "text-green-700"}`}>
-                                            {selectedCorrection.correct}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      {/* Explanation */}
-                                      <div>
-                                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">
-                                          Giải thích
-                                        </label>
-                                        <p className={`text-sm text-foreground leading-relaxed p-3 rounded-lg border-l-4 ${isSuggestion ? "bg-blue-50 border-blue-300" : "bg-primary/5 border-primary/30"}`}>
-                                          {selectedCorrection.explanation}
-                                        </p>
-                                      </div>
-
-                                      {/* Action Buttons */}
-                                      <div className="flex gap-2 pt-2">
-                                        <Button
-                                          size="sm"
-                                          variant={acceptedCorrections.has(selectedCorrection.id) ? "default" : "outline"}
-                                          className={`flex-1 ${
-                                            acceptedCorrections.has(selectedCorrection.id) 
-                                              ? isSuggestion ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700" 
-                                              : isSuggestion ? "border-blue-300 text-blue-700 hover:bg-blue-50" : "border-green-300 text-green-700 hover:bg-green-50"
-                                          }`}
-                                          onClick={() => handleAcceptCorrection(selectedCorrection.id)}
-                                        >
-                                          <Check className="w-4 h-4 mr-1.5" />
-                                          {isSuggestion ? "Áp dụng" : "Chấp nhận"}
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant={rejectedCorrections.has(selectedCorrection.id) ? "default" : "outline"}
-                                          className={`flex-1 ${rejectedCorrections.has(selectedCorrection.id) ? "bg-gray-600 hover:bg-gray-700" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
-                                          onClick={() => handleRejectCorrection(selectedCorrection.id)}
-                                        >
-                                          <X className="w-4 h-4 mr-1.5" />
-                                          {isSuggestion ? "Giữ nguyên" : "Từ chối"}
-                                        </Button>
-                                      </div>
-
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="w-full text-muted-foreground hover:text-foreground"
-                                      >
-                                        <HelpCircle className="w-4 h-4 mr-1.5" />
-                                        Hỏi AI thêm
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </>
-                              )
-                            })()}
-                          </div>
-                        ) : (
-                          <div className="h-full flex flex-col items-center justify-center text-center p-8">
-                            <div className="p-4 bg-muted/30 rounded-full mb-4">
-                              <PenLine className="w-8 h-8 text-muted-foreground" />
-                            </div>
-                            <h4 className="font-semibold text-foreground mb-2">Chọn một mục để xem chi tiết</h4>
-                            <p className="text-sm text-muted-foreground">
-                              Nhấn vào bất kỳ phần được đánh dấu trong bài viết để xem giải thích và tùy chọn chỉnh sửa.
-                            </p>
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  </TabsContent>
+                  </div>
+                </div>
+              )}
 
-                  {/* Tab 3: Logic & Coherence */}
-                  <TabsContent value="logic" className="p-6 mt-0 space-y-5">
-                    {/* Structure */}
-                    <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Layers className="w-5 h-5 text-blue-600" />
-                        <h4 className="font-semibold text-blue-800">Cấu trúc bài viết</h4>
-                      </div>
-                      <p className="text-blue-700 leading-relaxed">
-                        {result.logicFeedback.structure}
-                      </p>
+              {activeTab === "logic" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {[
+                    { icon: "🏗️", title: "Cấu trúc bài viết", content: result.logicFeedback.structure, color: "#EBF5FF", border: "#BFDBFE", text: "#1E40AF" },
+                    { icon: "🔗", title: "Tính mạch lạc", content: result.logicFeedback.coherence, color: "#F3E8FF", border: "#DDD6FE", text: "#5B21B6" },
+                    { icon: "💡", title: "Lập luận", content: result.logicFeedback.argumentation, color: "#F0FAF4", border: "#C5E8D0", text: "#2D5A3D" },
+                  ].map(item => (
+                    <div key={item.title} style={{ padding: 20, background: item.color, borderRadius: 14, border: "1px solid " + item.border }}>
+                      <div style={{ fontWeight: 700, color: item.text, fontSize: 15, marginBottom: 10 }}>{item.icon} {item.title}</div>
+                      <p style={{ margin: 0, color: item.text, lineHeight: 1.8, fontSize: 14 }}>{item.content}</p>
                     </div>
+                  ))}
+                  <div style={{ padding: 20, background: "#FFFBF0", borderRadius: 14, border: "1px solid #FCD34D" }}>
+                    <div style={{ fontWeight: 700, color: "#92400E", fontSize: 15, marginBottom: 14 }}>📝 Gợi ý cải thiện</div>
+                    {result.logicFeedback.suggestions.map((s, i) => (
+                      <div key={i} style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                        <span style={{ width: 22, height: 22, borderRadius: 99, background: "#F59E0B", color: "#ffffff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+                        <span style={{ fontSize: 14, color: "#92400E", lineHeight: 1.7 }}>{s}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-                    {/* Coherence */}
-                    <div className="p-4 rounded-xl bg-purple-50 border border-purple-200">
-                      <div className="flex items-center gap-2 mb-3">
-                        <TrendingUp className="w-5 h-5 text-purple-600" />
-                        <h4 className="font-semibold text-purple-800">Tính mạch lạc</h4>
-                      </div>
-                      <p className="text-purple-700 leading-relaxed">
-                        {result.logicFeedback.coherence}
-                      </p>
-                    </div>
+              {activeTab === "vocabulary" && (
+                <div style={{ textAlign: "center", padding: "48px 20px", color: "#A3C4AC" }}>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}>📚</div>
+                  <div style={{ fontSize: 15, marginBottom: 8, color: "#6B9E7A" }}>Tính năng đang được phát triển</div>
+                  <div style={{ fontSize: 13 }}>Sắp có: từ vựng hay, cấu trúc ngữ pháp điểm cao và cách diễn đạt tự nhiên theo từng chủ đề TOPIK</div>
+                </div>
+              )}
 
-                    {/* Argumentation */}
-                    <div className="p-4 rounded-xl bg-teal-50 border border-teal-200">
-                      <div className="flex items-center gap-2 mb-3">
-                        <MessageSquare className="w-5 h-5 text-teal-600" />
-                        <h4 className="font-semibold text-teal-800">Lập luận</h4>
-                      </div>
-                      <p className="text-teal-700 leading-relaxed">
-                        {result.logicFeedback.argumentation}
-                      </p>
+              {activeTab === "suggested" && (
+                <div>
+                  <div style={{ padding: 20, background: "#F7FBF8", borderRadius: 14, border: "1px solid #E8F5EC", marginBottom: 16, display: "flex", alignItems: "flex-start", gap: 12 }}>
+                    <span style={{ fontSize: 24 }}>💡</span>
+                    <div>
+                      <div style={{ fontWeight: 700, color: "#2D5A3D", marginBottom: 4 }}>Bài viết mẫu tham khảo</div>
+                      <div style={{ fontSize: 13, color: "#6B9E7A", lineHeight: 1.6 }}>Đây là phiên bản đã chỉnh sửa. Chỉ mang tính tham khảo — không sao chép nguyên văn.</div>
                     </div>
+                  </div>
+                  <div style={{ padding: 24, background: "#ffffff", borderRadius: 14, border: "1.5px solid #E8F5EC", fontSize: 16, lineHeight: 2, color: "#2D5A3D", whiteSpace: "pre-line", marginBottom: 16 }}>{result.suggestedEssay}</div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <button onClick={async () => { await navigator.clipboard.writeText(result.suggestedEssay); setCopied(true); setTimeout(() => setCopied(false), 2000) }} style={{ padding: "12px 24px", borderRadius: 10, background: copied ? "#2D5A3D" : "#F0FAF4", color: copied ? "#ffffff" : "#2D5A3D", border: "1.5px solid #4A7C59", cursor: "pointer", fontWeight: 600, fontSize: 14 }}>
+                      {copied ? "✓ Đã sao chép!" : "📋 Sao chép"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
-                    {/* Suggestions */}
-                    <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Lightbulb className="w-5 h-5 text-amber-600" />
-                        <h4 className="font-semibold text-amber-800">Gợi ý cải thiện</h4>
-                      </div>
-                      <ul className="space-y-2">
-                        {result.logicFeedback.suggestions.map((suggestion, index) => (
-                          <li key={index} className="flex items-start gap-2 text-amber-700">
-                            <span className="w-5 h-5 rounded-full bg-amber-200 flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5">
-                              {index + 1}
-                            </span>
-                            <span>{suggestion}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </TabsContent>
-
-                  {/* Tab 4: Suggested Essay */}
-                  <TabsContent value="suggested" className="p-6 mt-0">
-                    {/* Header Note */}
-                    <div className="flex items-start gap-3 mb-6 p-4 rounded-xl bg-gradient-to-r from-primary/5 to-accent/5 border border-primary/20">
-                      <div className="p-2 bg-primary/10 rounded-lg shrink-0">
-                        <Lightbulb className="w-5 h-5 text-primary" />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-foreground mb-1">Bài viết mẫu tham khảo</h4>
-                        <p className="text-sm text-muted-foreground leading-relaxed">
-                          Đây là phiên bản đã được chỉnh sửa và cải thiện dựa trên bài viết của học viên. 
-                          Bài viết này chỉ mang tính chất tham khảo - học viên nên học hỏi cách diễn đạt và cấu trúc, 
-                          không nên sao chép nguyên văn.
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Essay Content - Premium Style */}
-                    <div className="relative mb-6">
-                      <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 to-accent/20 rounded-2xl blur-sm" />
-                      <div className="relative p-6 md:p-8 rounded-xl bg-card border border-border/60 shadow-sm">
-                        <div className="flex items-center gap-2 mb-4 pb-4 border-b border-border/40">
-                          <PenLine className="w-5 h-5 text-primary" />
-                          <span className="font-semibold text-foreground">Bài viết đề xuất</span>
-                          <Badge variant="secondary" className="ml-auto text-xs">
-                            Mẫu tham khảo
-                          </Badge>
-                        </div>
-                        <div className="prose prose-sm max-w-none">
-                          <p className="whitespace-pre-line text-foreground leading-loose text-base">
-                            {result.suggestedEssay}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-wrap gap-3">
-                      <Button
-                        variant="outline"
-                        onClick={handleCopy}
-                        className="flex-1 sm:flex-none h-11 px-6 border-primary/30 hover:bg-primary/5 hover:border-primary/50 transition-all"
-                      >
-                        {copied ? (
-                          <>
-                            <CheckCircle className="w-4 h-4 mr-2 text-green-600" />
-                            <span className="text-green-600">Đã sao chép!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4 mr-2" />
-                            Sao chép bài viết
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={handleDownload}
-                        className="flex-1 sm:flex-none h-11 px-6 border-primary/30 hover:bg-primary/5 hover:border-primary/50 transition-all"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        Tải xuống (.txt)
-                      </Button>
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </CardContent>
-            </Card>
-          )}
+        <div style={{ textAlign: "center", padding: "32px 0 16px", color: "#A3C4AC", fontSize: 13 }}>
+          <div>✦ Chixieunhan · AI Chấm Bài TOPIK · Kết quả chỉ mang tính tham khảo</div>
         </div>
-
-        {/* Footer */}
-        <footer className="mt-12 text-center text-sm text-muted-foreground">
-          <p>
-            Hệ thống sử dụng AI để phân tích và nhận xét. 
-            Kết quả chỉ mang tính chất tham khảo và có thể khác với đánh giá thực tế của kỳ thi TOPIK.
-          </p>
-        </footer>
       </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } } * { box-sizing: border-box }`}</style>
     </div>
   )
 }
